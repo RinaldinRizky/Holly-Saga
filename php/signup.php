@@ -1,84 +1,75 @@
 <?php
-include_once 'db.php';
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
+    //Import PHPMailer classes into the global namespace
+    //These must be at the top of your script, not inside a function
+    use PHPMailer\PHPMailer\PHPMailer;
+    use PHPMailer\PHPMailer\SMTP;
+    use PHPMailer\PHPMailer\Exception;
 
-require '/xampp/htdocs/Holly-Saga/vendor/autoload.php'; // Path to Composer's autoload.php
+    session_start();
+    if (isset($_SESSION['SESSION_EMAIL'])) {
+        header("Location: welcome.php");
+        die();
+    }
 
-$fname = $_POST['fname'];
-$lname = $_POST['lname'];
-$email = $_POST['email'];
-$phone = $_POST['phone'];
-$password = md5($_POST['password']);
-$cpassword = md5($_POST['cpass']);
-$Role = 'user';
-$verification_status = '0';
+    //Load Composer's autoloader
+    require 'vendor/autoload.php';
 
-// checking fields are not empty
-if (!empty($fname) && !empty($lname) && !empty($email) && !empty($phone) && !empty($password) && !empty($cpassword)) {
-    // if email is valid
-    if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        // checking email is already exists
-        $sql = mysqli_query($conn, "SELECT email FROM users WHERE email = '{$email}'");
-        if (mysqli_num_rows($sql) > 0) {
-            echo "$email - Already Exists";
+    include 'config.php';
+    $msg = "";
+
+    if (isset($_POST['submit'])) {
+        $name = mysqli_real_escape_string($conn, $_POST['name']);
+        $email = mysqli_real_escape_string($conn, $_POST['email']);
+        $password = mysqli_real_escape_string($conn, md5($_POST['password']));
+        $confirm_password = mysqli_real_escape_string($conn, md5($_POST['confirm-password']));
+        $code = mysqli_real_escape_string($conn, md5(rand()));
+
+        if (mysqli_num_rows(mysqli_query($conn, "SELECT * FROM users WHERE email='{$email}'")) > 0) {
+            $msg = "<div class='alert alert-danger'>{$email} - This email address has been already exists.</div>";
         } else {
-            // checking password and confirm password match
-            if ($password === $cpassword) {
-                $random_id = rand(time(), 10000000); // creating a random id for user
-                $otp = mt_rand(1111, 9999); // creating 4 digits otp
+            if ($password === $confirm_password) {
+                $sql = "INSERT INTO users (name, email, password, code) VALUES ('{$name}', '{$email}', '{$password}', '{$code}')";
+                $result = mysqli_query($conn, $sql);
 
-                // insert data into table without image
-                $sql2 = mysqli_query($conn, "INSERT INTO users (unique_id, fname, lname, email, phone, password, otp, verification_status, Role) 
-                VALUES ({$random_id}, '{$fname}', '{$lname}', '{$email}', '{$phone}', '{$password}', '{$otp}', '{$verification_status}', '{$Role}')");
+                if ($result) {
+                    echo "<div style='display: none;'>";
+                    //Create an instance; passing `true` enables exceptions
+                    $mail = new PHPMailer(true);
 
-                if ($sql2) {
-                    $sql3 = mysqli_query($conn, "SELECT * FROM users WHERE email = '{$email}'");
-                    if (mysqli_num_rows($sql3) > 0) {
-                        $row = mysqli_fetch_assoc($sql3);
-                        $_SESSION['unique_id'] = $row['unique_id'];
-                        $_SESSION['email'] = $row['email'];
-                        $_SESSION['otp'] = $row['otp'];
+                    try {
+                        //Server settings
+                        $mail->SMTPDebug = SMTP::DEBUG_SERVER;                      //Enable verbose debug output
+                        $mail->isSMTP();                                            //Send using SMTP
+                        $mail->Host       = 'smtp.gmail.com';                     //Set the SMTP server to send through
+                        $mail->SMTPAuth   = true;                                   //Enable SMTP authentication
+                        $mail->Username   = 'hollysagaofficial@gmail.com';                     //SMTP username
+                        $mail->Password   = 'muot xgbu etnh hwgp';                               //SMTP password
+                        $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;            //Enable implicit TLS encryption
+                        $mail->Port       = 465;                                    //TCP port to connect to; use 587 if you have set `SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS`
 
-                        // let's start mail function using PHPMailer
-                        $mail = new PHPMailer(true);
+                        //Recipients
+                        $mail->setFrom('hollysagaofficial@gmail.com');
+                        $mail->addAddress($email);
 
-                        try {
-                            //Server settings
-                            $mail->isSMTP();
-                            $mail->Host       = 'smtp.gmail.com';
-                            $mail->SMTPAuth   = true;
-                            $mail->Username   = 'hollysagaofficial@gmail.com';
-                            $mail->Password   = 'muot xgbu etnh hwgp';
-                            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-                            $mail->Port       = 587; // Use port 587 for TLS
+                        //Content
+                        $mail->isHTML(true);                                  //Set email format to HTML
+                        $mail->Subject = 'no reply';
+                        $mail->Body    = 'Here is the verification link <b><a href="http://localhost/login/?verification='.$code.'">http://localhost/login/?verification='.$code.'</a></b>';
 
-                            //Recipients
-                            $mail->setFrom('hollysagaofficial@gmail.com', 'Mailer');
-                            $mail->addAddress($email, $fname . ' ' . $lname);
-
-                            // Content
-                            $mail->isHTML(true);
-                            $mail->Subject = 'Here is the subject';
-                            $mail->Body    = "Name: {$fname} {$lname} <br> Email: {$email} <br> OTP: {$otp}";
-
-                            $mail->send();
-                            echo 'Message has been sent';
-                        } catch (Exception $e) {
-                            echo "Message could not be sent. Mailer Error: {$mail->ErrorInfo}";
-                        }
+                        $mail->send();
+                        echo 'Message has been sent';
+                    } catch (Exception $e) {
+                        echo "Message could not be sent. Mailer Error: {$mail->ErrorInfo}";
                     }
+                    echo "</div>";
+                    $msg = "<div class='alert alert-info'>We've send a verification link on your email address.</div>";
                 } else {
-                    echo "Something went wrong!";
+                    $msg = "<div class='alert alert-danger'>Something wrong went.</div>";
                 }
             } else {
-                echo "Passwords do not match!";
+                $msg = "<div class='alert alert-danger'>Password and Confirm Password do not match</div>";
             }
         }
-    } else {
-        echo "$email - This is not a valid email!";
     }
-} else {
-    echo "All input fields are required!";
-}
 ?>
+
